@@ -1,0 +1,847 @@
+---
+title: "Mental Health in Tech Analysis"
+author: "Beatriz Gomez, Mahendra Kaswan, Vasundhara Sharma"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+## Introduction and Problem Statement
+Technology professionals are among the most likely to suffer from mental health issues. Around 20% IT workers are finding it hard to adjust to the new ways of working, and 34% are getting anxious about work, according to a famous magazine's survey. After pursuing a STEM course, the students are more likely to get a job in a tech-based company and with the increase in awareness of mental health issues, this data set - *Mental Health in Tech Survey* ([Link](https://www.kaggle.com/osmi/mental-health-in-tech-survey)) seemed a perfect fit for the Hackathon. This data set is from a 2014 survey that measures attitudes towards mental health and frequency of mental health disorders in the tech workplace. It has `1259 rows` and `27 columns`. It consists of demographic information of the respondents like `gender`,  `age`, `country`, and `state`. The original data set is from Open Sourcing Mental Illness. We aim to analyse attitude of people and employers towards mental health based on factors like the workplace country, type of industry (tech / non-tech), company size, employer benefits, etc.
+  
+  
+The first step is to perform exploratory data analysis to understand the survey data set, the questions asked, types of responses, and demographics of the respondents. The next step is to check what are the most common responses for a certain variables, and understand how those response change for different countries and states in the US. Analyzing how the variables are correlated to each other is important part of the project. Finally, to study if there is any improvement in certain features, we have used *OSMI Mental Health in Tech Survey 2016* ([Link](https://www.kaggle.com/osmi/mental-health-in-tech-2016)) and *OSMI Mental Health In Tech Survey 2019* ([Link](https://www.kaggle.com/osmihelp/osmi-mental-health-in-tech-survey-2019)). The data set consists of `1146 rows x 63 columns` and `352 rows x 82 columns respectively`.
+
+```{r include = F}
+# loading the libraries
+knitr::opts_chunk$set(echo = F, tidy.opts = list(comment = FALSE), fig.align = 'center')
+library(tidyverse)
+library(hrbrthemes)
+library(viridis)
+library(RColorBrewer)
+library(gridExtra)
+library(ggalluvial)
+library(wordcloud)
+library(tidytext)
+library(reshape2)
+library(corrplot)
+library(ggcorrplot)
+library(patchwork)
+library(lubridate)
+library(kableExtra)
+```
+
+```{r include = F}
+# reading the data file
+df_mental_health <- read.csv('mental-health-survey.csv', na.strings = c('', 'NA'), stringsAsFactors = T)
+head(df_mental_health, 2) # checking the data set
+
+# checking the unique values in the Gender column
+unique(df_mental_health$Gender)
+
+# converting the column values to lowercase
+df_mental_health$Gender <- tolower(df_mental_health$Gender)
+
+# defining lists on the basis of unique values present in the dataset
+male <- c('male-ish', 'cis male', 'male (cis)', 'make', 'mail', 
+          'ostensibly male, unsure what that really means', 'm', 'maile', 'male ', 
+          'msle', 'mal', 'man', 'malr', 'cis man', 'male')
+
+female <- c('female', 'female ', 'female (cis)', 'woman', 'cis female', 
+            'cis-female/femme', 'femail', 'f', 'femake')
+
+others <- c('p', 'nah', 'all', 'a little about you', 'genderqueer', 'non-binary', 
+            'trans woman', 'androgyne', 'neuter', 'trans-female', 'agender', 
+            'female (trans)', 'something kinda male?', 'enby', 'guy (-ish) ^_^', 
+            'queer', 'queer/she/they', 'male leaning androgynous', 'fluid')
+
+df_mental_health <- df_mental_health %>% mutate(Gender = replace(Gender, which(Gender %in% male), 'Male'),
+                                                Gender = replace(Gender, which(Gender %in% female), 'Female'),
+                                                Gender = replace(Gender, which(Gender %in% others), 'Others'))
+
+# checking if all values are covered and category is consistent                                                
+unique(df_mental_health$Gender)
+
+# age values has some negative values and values over 100
+# replacing negative and over 100 values with NA
+df_mental_health <- df_mental_health %>% mutate(Age = replace(Age, which(Age < 0), NA),
+                                                Age = replace(Age, which(Age > 100), NA))
+
+# age values has some negative values and values over 100
+# keeping rows with age between 18 and 100
+df_mental_health <- df_mental_health %>% filter(Age >= 18 & Age < 100)
+
+# checking the summary of the Age column
+(df_mental_health$Age)
+
+# checking top 4 countries with maximum rows
+top_4_countries <- (df_mental_health %>% 
+                      group_by(Country) %>% 
+                      summarise(Total.Count = n()) %>% 
+                      arrange(desc(Total.Count)) %>% top_n(4))$Country
+
+# filter data for countries with maximum rows (top 4)
+df_MH_top4 <- df_mental_health %>% filter(Country %in% top_4_countries)
+
+```
+
+
+## Section 1: Knowing the Respondents
+***Q1)* What are the demographics of the respondents?** 
+  
+The respondents in the survey data set consists of 78.8% males, 19.6% females, and 1.6% others. Majority of the respondents belong to age group 30-39 years covering 44% of the data, followed by 20-29 years with 39.4%. 8-19 years (1.7%) and 50-59 years (2%) have very less number of respondents.  
+```{r, fig.align='center'}
+age_range <- df_mental_health %>% 
+  select(Age) %>%
+  mutate(
+    # Create categories
+    Age.Group = dplyr::case_when(
+      Age <= 20            ~ "18-19",
+      Age > 19 & Age <= 29 ~ "20-29",
+      Age > 29 & Age <= 39 ~ "30-39",
+      Age > 39 & Age <= 49 ~ "40-49",
+      Age > 49 & Age <= 59 ~ "50-59",
+      Age > 49             ~ "> 60"
+    ),
+    # Convert to factor
+    Age.Group = factor(
+      Age.Group,
+      level = c("18-19", "20-29","30-39", "40-49", "50-59","> 60")))
+
+knitr::kable(age_range %>%
+        group_by(Age.Group) %>%
+        drop_na() %>%
+        summarise(Percentage = (n()/nrow(age_range))*100L) %>% 
+        arrange(desc(Percentage)) %>%
+        mutate(Percentage = paste0(round(Percentage,2), "%")), align = 'c') %>%
+  kable_styling(latex_options = "HOLD_position")
+```
+
+\newpage
+***Q2)* Which countries and states, maximum respondents are belonging to? With whom are employees more likely to talk about their mental health conditions at workplace?**
+```{r fig.width = 12, fig.height = 12,  fig.align='center', echo = F, warning = F, message = F}
+top_4_countries_percentage <- (df_mental_health %>%
+                                 group_by(Country) %>%
+                                 summarise(Percentage = round((n()/nrow(df_mental_health)*100L))) %>%
+                                 arrange(desc(Percentage))%>%
+                                 head(n=4))
+
+plt_pie_top_countries <- (top_4_countries_percentage %>%
+                            arrange(-Percentage) %>%
+                            mutate(Per_cumsum=cumsum(Percentage)) %>%
+                            ggplot(aes(x = "" , y = Percentage, fill = Country)) +
+                            geom_col() +
+                            geom_text(aes(label = paste(Percentage,"%", sep = "")), 
+                                      position = position_stack(vjust = 0.5))+
+                            coord_polar("y", start=2) +
+                            theme_minimal())
+
+top_4_states_US <- (df_MH_top4 %>% 
+                      filter(Country == 'United States') %>% 
+                      group_by(state) %>% 
+                      summarise(Total.Count = n()) %>% 
+                      arrange(desc(Total.Count)) %>% 
+                      top_n(4))$state
+
+df_top_4_states_US <- df_MH_top4 %>% filter(state %in% top_4_states_US)
+
+df_MH_top4_pivot <- (df_top_4_states_US %>%
+                       select(state, coworkers, supervisor) %>% 
+                       pivot_longer(cols = c(coworkers, supervisor), 
+                                    names_to = 'Coworker.or.Supervisor', 
+                                    values_to = 'Responses'))
+
+df_MH_top4_pivot <- (df_MH_top4_pivot %>% 
+                       group_by(state, Coworker.or.Supervisor, Responses) %>% 
+                       summarise(Total.Count = n()) %>% 
+                       merge(df_top_4_states_US %>% group_by(state) %>% 
+                               summarise(Total.State.Count = n()), by = 'state') %>%
+                       mutate(Percentage = (Total.Count / Total.State.Count)*100))
+
+plt_al_top_4_states <- (ggplot(df_MH_top4_pivot, 
+                               aes(axis1 = state, axis2 = Coworker.or.Supervisor,  
+                                   y = Percentage)) +
+                          geom_alluvium(aes(fill = Responses)) + 
+                          geom_stratum(width = 1/2.7) +
+                          geom_text(stat = 'stratum', 
+                                    aes(label = after_stat(stratum)), size = 5) + 
+                          scale_x_discrete(limits = c("State", "Coworker/Supervisor"), 
+                                           expand = c(0.15, 0.05)) + 
+                          theme_minimal())
+
+grid.arrange(plt_pie_top_countries, plt_al_top_4_states, ncol = 1)
+```
+**Insight:**  About 85% of the data from this survey is centered on the following 4 countries: United States, United Kingdom, Canada, and Germany. If we take a deeper look into the US, most of the data comes from California (44%), Washington (22%), New York (18%), and Tennessee (14%).  All these States have one thing in common, most employees would prefer to open up to their supervisors, rather than to their coworkers. This shows that direct channels of communication between supervisors and their subordinates are essential to encourage conversation surrounding mental health at the workplace.  
+  
+\newpage
+***Q3)* How do tech companies fare against non-tech companies in mental health support?**  
+```{r fig.align='center', echo = F, warning = F, message = F, fig.align='center', fig.height=5}
+#Differentiation of tech vs. non 
+tech_companies <- df_mental_health %>%
+  filter(tech_company == 'Yes')
+
+notech_companies <- df_mental_health %>%
+  filter(tech_company == 'No')
+
+#PEOPLE SEEKING TREATMENT 
+seektreat <- tech_companies %>%
+  filter(treatment == 'Yes') %>%
+  select(treatment)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+seektreat$Type <- 'Treatment'
+seektreat$Industry <- 'Tech'
+
+notech_seektreat <- notech_companies %>%
+  filter(treatment == 'Yes') %>%
+  select(treatment) %>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_seektreat$Type <- 'Treatment'
+notech_seektreat$Industry <- 'Non-Tech'
+
+clean_treatmentcomparison <- bind_rows(seektreat, notech_seektreat)
+
+comp_treatment <- ggplot(data=clean_treatmentcomparison,
+      aes(x="", y=Percentage, fill=Industry)) +
+      geom_bar(stat="identity", position="dodge")+
+      xlab("") + ylab("Percentage (%)")+
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.title = element_text(size = 9.5), legend.position="none") +
+      geom_text(aes(label=paste(Percentage,"%")), position = position_dodge(width = 1), vjust=4, color="white", size=4)+
+      ggtitle("Employees Seeking Treatment per Industry")
+
+
+# TYPES OF SUPPORT
+# Benefits Comparison
+benefit <- tech_companies %>%
+  filter(benefits == 'Yes') %>%
+  select(benefits)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+benefit$Type <- 'Benefits'
+benefit$Industry <- 'Tech'
+
+notech_benefit <- notech_companies %>%
+  filter(benefits == 'Yes') %>%
+  select(benefits) %>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_benefit$Type <- 'Benefits'
+notech_benefit$Industry <- 'Non-Tech'
+
+# Wellness Program Comparison 
+wellness <- tech_companies %>%
+  filter(wellness_program == 'Yes') %>%
+  select(wellness_program)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+wellness$Type <- 'Wellness Programs'
+wellness$Industry <- 'Tech'
+
+notech_wellness<- notech_companies %>%
+  filter(wellness_program == 'Yes') %>%
+  select(wellness_program) %>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_wellness$Type <- 'Wellness Programs'
+notech_wellness$Industry <- 'Non-Tech'
+
+#Seeking Help Comparison
+s_help <- tech_companies %>%
+  filter(seek_help == 'Yes') %>%
+  select(seek_help)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+s_help$Type <- 'Guidance'
+s_help$Industry <- 'Tech'
+
+notech_s_help <- notech_companies %>%
+  filter(seek_help == 'Yes') %>%
+  select(seek_help)%>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_s_help$Type <- 'Guidance'
+notech_s_help$Industry <- 'Non-Tech'
+
+clean_supportcomparison <- bind_rows(s_help, notech_s_help,wellness, notech_wellness, benefit, notech_benefit)
+  
+comp_all_support <- ggplot(data=clean_supportcomparison,
+      aes(x=Type, y=Percentage, fill=Industry)) +
+      geom_bar(stat="identity", position="dodge")+
+      xlab("") + ylab("Percentage (%)")+
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.title = element_text(size = 9.5), legend.position="none") +
+      geom_text(aes(label=paste(Percentage,"%")), position = position_dodge(width = 1), vjust=4, color="white", size=2.5)+
+      xlab("") + ylab("Percentage (%)")+
+      ggtitle("Types of Support Based on Industry")
+
+
+#COMMUNICATION 
+#Convert "Some of them" to Yes
+
+#Sharing with Coworkers
+coworkers <- tech_companies %>%
+  filter(coworkers == 'Yes') %>%
+  select(coworkers)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+coworkers$Type <- 'Coworkers'
+coworkers$Industry <- 'Tech'
+
+notech_coworkers <- notech_companies %>%
+  filter(coworkers == 'Yes') %>%
+  select(coworkers) %>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_coworkers$Type <- 'Coworkers'
+notech_coworkers$Industry <- 'Non-Tech'
+
+#Sharing with Supervisor
+supervisors <- tech_companies %>%
+  filter(supervisor == 'Yes') %>%
+  select(supervisor)%>%
+  summarise(Percentage = round((n()/nrow(tech_companies))*100L))
+supervisors$Type <- 'Supervisors'
+supervisors$Industry <- 'Tech'
+
+notech_supervisors <- notech_companies %>%
+  filter(supervisor == 'Yes') %>%
+  select(supervisor) %>%
+  summarise(Percentage = round((n()/nrow(notech_companies))*100L))
+notech_supervisors$Type <- 'Supervisors'
+notech_supervisors$Industry <- 'Non-Tech'
+
+#Combine all cleaned data
+clean_commcomparison <- bind_rows(coworkers, notech_coworkers, supervisors, notech_supervisors)
+  
+comp_all_comm <- ggplot(data=clean_commcomparison,
+      aes(x=Type, y=Percentage, fill=Industry)) +
+      geom_bar(stat="identity", position = "dodge")+
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.title = element_text(size = 9.5)) +
+      xlab("") + ylab("Percentage (%)")+
+      geom_text(aes(label=paste(Percentage,"%")), position = position_dodge(width = 1), vjust=4, color="white", size=2.5)+
+      ggtitle("Opinion on Disclosure Based on Industry")
+
+
+grid.arrange(comp_treatment, arrangeGrob(comp_all_support, comp_all_comm), ncol=2)
+```
+**Insight:**
+In terms of comparison per industry, non-tech companies are well-placed to tackle employee's mental health. People working in non-tech are more open to treatment of mental health issues(54% against 50% from tech). Also, non-tech companies have better mental health support package (benefits, guidance and wellness programs). However, even after having less mental health support, tech employees are more vocal at expressing their mental health issues with their supervisors and coworkers. This may be a result given that the technology industry is targeted towards the younger generations who have been exposed to more open environments and therefore are generally more willing to share personal experiences.
+
+
+
+    
+\newpage  
+## Section 2: Factors affecting the mental health of the employees
+***Q4)* How are the survey responses correlated with each other? What are the factors impacting employees getting treatment for their mental health?**
+```{r fig.align='center', fig.width = 15, fig.height = 6}
+df_MH_copy <- (df_mental_health %>% 
+                 select(-c('Timestamp', 'comments', 'no_employees', 'Country', 
+                           'mental_vs_physical', 'self_employed', 'remote_work', 
+                           'work_interfere', 'state', 'phys_health_consequence', 
+                           'mental_health_consequence', 'phys_health_interview', 
+                           'mental_health_interview', 'tech_company')) %>% 
+                 drop_na() %>% mutate(Gender = as.factor(Gender)))
+
+ for (col in colnames(df_MH_copy)) {
+   df_MH_copy[, col] <- as.numeric(df_MH_copy[ ,col])}
+
+corr <- cor(df_MH_copy)
+p.mat <- cor_pmat(df_MH_copy)
+plt_cor <- ggcorrplot(corr, hc.order = TRUE, type = "lower",
+                      p.mat = p.mat, ggtheme = theme_minimal())
+
+
+correlation_w_treatment <- as.data.frame(round(cor(df_MH_copy ,df_MH_copy$treatment), 2))
+row_names <- rownames(correlation_w_treatment)
+rownames(correlation_w_treatment) <- NULL
+correlation_w_treatment <- cbind(row_names, correlation_w_treatment)
+correlation_w_treatment <- correlation_w_treatment[order(-correlation_w_treatment$V1),]
+correlation_w_treatment$V1 <- abs(correlation_w_treatment$V1)
+correlation_w_treatment <- correlation_w_treatment %>% filter(!row_names == 'treatment')
+
+
+plt_cor_treatment <- (ggplot(data = correlation_w_treatment, 
+                             aes(x = V1, y = row_names, color = row_names, group = row_names)) +
+                        geom_segment(data = correlation_w_treatment, 
+                                     aes(x = 0, xend = V1, y = row_names,
+                                         yend = row_names), size = 1) +
+                        geom_point(size = 3) + ggtitle("Correlation with Treatment Variable") + 
+                        theme(legend.position = "none") + 
+                        xlab("Correlation values") + ylab("Variables") + 
+                        theme_minimal() + theme(legend.position = "none",
+                                                axis.text = element_text(size = 10),
+                                                axis.title = element_text(size = 12)))
+
+grid.arrange(plt_cor, plt_cor_treatment, ncol = 2)
+```
+**Insight:** There is a strong correlation between wellness_program and seek_help, which suggests that people are more likely to seek help if the employers discuss mental health in the workplace as part of their wellness programs. Also, if an employee feels safe disclosing their mental health condition with their supervisor, they will most likely feel safe sharing it with their coworkers.  
+  
+Additionally, when it comes to seeking help, it is evident that people who have some kind of history of mental health conditions in their families, as well as those whom their employers provide mental health care options, are more likely to seek treatment.
+
+
+\newpage
+***Q5)* Does company size play a role in the availability of mental help support for employees?**
+```{r echo = F, warning = F, message = F, fig.align='center', fig.height=5}
+#Q: How does company size affect mental help support? 
+#Reformat No. of Employees Columns to only have Small & Large Companies
+
+small <- c("1-5", "6-25","26-100")
+large <- c("100-500", "500-1000", "More than 1000")
+df_mental_health_copy <- df_mental_health %>%
+  mutate(no_employees = as.character(no_employees),
+        no_employees = replace(no_employees, which(no_employees %in% small), 'Small'), 
+        no_employees = replace(no_employees, which(no_employees %in% large), 'Large'))
+
+small_companies <- df_mental_health_copy %>%
+  filter(no_employees == "Small")
+
+large_companies <- df_mental_health_copy %>%
+  filter(no_employees == "Large")
+
+
+#Percentage of Employees per Company Size that Ought Treatment
+small_treatY <- small_companies %>%
+  filter(treatment == 'Yes') %>%
+  summarise(Percentage = round((n()/nrow(small_companies))*100L)) %>%
+  mutate(Answer = 'Yes', Size = 'Small')
+ 
+small_treatN <- small_companies %>%
+  filter(treatment == 'No') %>%
+  summarise(Percentage = round((n()/nrow(small_companies))*100L)) %>%
+  mutate(Answer = 'No', Size = 'Small')
+    
+large_treatY <- large_companies %>%
+  filter(treatment == 'Yes') %>%
+  summarise(Percentage = round((n()/nrow(large_companies))*100L)) %>%
+  mutate(Answer = 'Yes', Size = 'Large')
+  
+large_treatN <- large_companies %>%
+  filter(treatment == 'No') %>%
+  summarise(Percentage = round((n()/nrow(large_companies))*100L)) %>%
+  mutate(Answer = 'No', Size = 'Large')
+  
+co_size_treat <- bind_rows(small_treatY, small_treatN, large_treatY, large_treatN)
+
+#Labels Positioning
+co_size_treat <- co_size_treat %>%
+  group_by(Size) %>%
+  mutate(label_y = cumsum(Percentage))
+
+#Plotting 
+compare_size_treat <- ggplot(co_size_treat,
+      aes(x= Size , y=Percentage, fill= Answer)) +
+      geom_bar(stat="identity")+
+      xlab("Company Size") + ylab("Percentage (%)") +
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.title = element_text(size = 9.5)) +
+      geom_text(aes(y = label_y, label = paste(Percentage,"%")), vjust = 1.5, colour = "white")+
+      ggtitle("Company Size vs. Percentage of People Seeking Treatment")
+
+
+#Comparison of different offerings by company size
+
+#1. Looking at Benefits 
+co_size_ben <- df_mental_health %>%
+  filter(benefits == 'Yes') %>%
+  select(no_employees) %>%
+  group_by(no_employees) %>%
+  summarise(Total = n())%>%
+  mutate(Offering = 'Benefits')
+  
+#2. Looking at Anonymity
+co_size_anon <- df_mental_health %>%
+  filter(anonymity == 'Yes') %>%
+  select(no_employees) %>%
+  group_by(no_employees) %>%
+  summarise(Total = n())%>%
+  mutate(Offering = 'Anonymity')
+
+#3. Looking at whether they provide resources to seek help
+co_size_help <- df_mental_health %>%
+  filter(seek_help == 'Yes') %>%
+  select(no_employees) %>%
+  group_by(no_employees) %>%
+  summarise(Total = n()) %>%
+  mutate(Offering = 'Guidance to Seek Help')
+
+#4. Looking at Wellness Program
+co_size_well <- df_mental_health %>%
+  filter(wellness_program == 'Yes') %>%
+  select(no_employees) %>%
+  group_by(no_employees) %>%
+  summarise(Total = n()) %>%
+  mutate(Offering = 'Wellness Programs')
+
+company_size <- bind_rows(co_size_anon, co_size_ben, co_size_help, co_size_well)
+
+company_sizes <- ggplot(company_size,
+      aes(x=no_employees, y=Total, fill=Offering)) +
+      geom_bar(stat="identity", position= "dodge")+
+      coord_flip() +
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.title = element_text(size = 9.5)) +
+      ggtitle("Company Size vs. Employees with Access to Resources")+
+      xlab("Company Size") + ylab("No. Employees with Accessibility") 
+
+#grid.arrange(compare_size_treat, company_sizes, nrow=2, ncol=1)
+compare_size_treat / company_sizes
+```
+**Insight:** If we look into the breakdown of respondents based on company size, 59% of the respondents work in small companies (< 100 employees) and 41% work in large companies (>100 employees). When it comes to seeking treatment, 52% of employees in large companies ought treatment against 50% in small companies.  
+  
+Since employees seek the same amount of treatment regardless of the size of the company, we can draw a direct comparison about which size of company offers more support. When it comes to small companies, most employees have access to anonymity and benefits. Meanwhile in large companies, most employees receive mental health benefits. Therefore, it is fair to say that smaller companies care more about the well-being of their employees.
+
+
+\newpage
+***Q6)* Is mental health more stigmatized in companies that do not provide the benefits?**
+```{r echo = F, warning = F, message = F, fig.align='center', fig.height=5}
+## Q:Is metal health more stigmatize in companies that don’t provide benefits? 
+
+#Out of the X number of companies that provide benefits X percent of employees observed consequences
+  
+
+#################################                                 #########################
+
+#Filter only by Benefits offerings 
+
+offer_benefits <- df_mental_health %>%
+  filter(benefits == "Yes")
+
+nooffer_benefits <- df_mental_health %>%
+  filter(benefits == "No")
+
+unknownoffer_benefits <- df_mental_health %>%
+  filter(benefits == "Don't know")
+
+#Find Percentage of each for pie chart
+percent_offer <- offer_benefits%>%
+  summarise(Percentage = round((n()/nrow(df_mental_health))*100L)) %>%
+  mutate(Answer = 'Yes')
+  
+percent_nooffer <- nooffer_benefits %>%
+  summarise(Percentage = round((n()/nrow(df_mental_health))*100L)) %>%
+  mutate(Answer = 'No')
+
+percent_unknownoffer <- unknownoffer_benefits %>%
+  summarise(Percentage = round((n()/nrow(df_mental_health))*100L)) %>%
+  mutate(Answer = "Don't know")
+
+benefits_offered <- bind_rows(percent_offer, percent_nooffer, percent_unknownoffer)
+
+
+################ Weird Stacked Pie Chart (Play with it)
+comp_benefits_offered <- benefits_offered %>% 
+    ggplot(aes(x =Answer, y = Percentage)) +
+    geom_col(aes(fill = Answer), color = NA) +
+    labs(x = "", y = "Percentage of Answers") +
+    geom_text(aes(label = paste(Percentage,"%", sep = "")), 
+              position = position_stack(vjust = 0.5), colour = "white", width= 5) +
+    coord_polar("y", start=2) + 
+    guides(fill = FALSE)
+
+#Basic Pie Chart 
+comp_benefits_offered <- benefits_offered %>% 
+          mutate(Per_cumsum=cumsum(Percentage)) %>% 
+          ggplot(aes(x = "" , y = Percentage, fill = Answer)) +
+          geom_col() +
+          geom_text(aes(label = paste(Percentage,"%")), 
+                    position = position_stack(vjust = 0.5), colour = "white")+
+          coord_polar("y", start=2) +
+          theme_void() +
+          theme(legend.position="none", plot.title = element_text(size = 11)) +
+          ggtitle("Does your employer provide mental health benefits?")
+
+#Compare Observed Consequences based on Benefits Offerings
+
+benefit_obs <- offer_benefits %>%
+  filter(obs_consequence == 'Yes') %>%
+  summarise(Percentage = round((n()/nrow(offer_benefits))*100L)) %>%
+  mutate(Benefits = 'Offered')
+ 
+nobenefit_obs <- nooffer_benefits %>%
+  filter(obs_consequence == 'Yes') %>%
+  summarise(Percentage = round((n()/nrow(nooffer_benefits))*100L)) %>%
+  mutate(Benefits = 'Not offered')
+
+unknownbenefit_obs <- unknownoffer_benefits %>%
+  filter(obs_consequence == 'Yes') %>%
+  summarise(Percentage = round((n()/nrow(unknownoffer_benefits))*100L)) %>%
+  mutate(Benefits = 'Unsure if offered')
+  
+comp_benefits_consq <- bind_rows(benefit_obs, nobenefit_obs, unknownbenefit_obs)
+
+#Labels Positioning
+comp_benefits_consq <- comp_benefits_consq %>%
+  group_by(Benefits) %>%
+  mutate(label_y = cumsum(Percentage))
+
+#Plotting Bar Chart
+comparison_consq <- ggplot(comp_benefits_consq,
+      aes(x=Benefits, y=Percentage, fill = Benefits)) +
+      geom_bar(stat="identity")+
+      xlab("")+ ylab("Percentage") +
+      theme_minimal()+
+      theme(plot.title = element_text(size = 11), axis.text.x = element_text(angle = 45)) +
+      geom_text(aes(y = label_y, label = paste(Percentage,"%")), vjust = 1.5, colour = "white") +
+      ggtitle("Observed Consequences vs. \nBenefits Offered")
+
+grid.arrange(comp_benefits_offered, comparison_consq, nrow=1, ncol=2)
+```
+**Insight:** As expected, companies where no benefits are offered to employees tend to view mental health problems negatively and consequences are more frequent. On the other hand, in the companies where mental health is not even acknowledged, consequences are less frequent. However, it can be implied that since people are not encouraged to share their experiences, there are less scenarios in which a mental health condition is shared in the workplace, which may lead to erroneous less frequent observance of consequences.
+
+
+\newpage  
+## Section 3: Analyzing employee and employer's mindset in depth towards mental health
+***Q7)* Are employees more likely to talk about Mental health or Physical health conditions in an interview?**  
+```{r echo = F, warning = F, message = F}
+df_MH_top4_pivot <- df_top_4_states_US %>% 
+  select(state, mental_health_interview, phys_health_interview) %>% 
+  pivot_longer(cols = c(mental_health_interview, phys_health_interview), 
+               names_to = 'Ment.or.Phy.Int', 
+               values_to = 'Responses')
+
+df_MH_top4_pivot <- df_MH_top4_pivot %>% 
+         group_by(state, Ment.or.Phy.Int, Responses) %>% 
+         summarise(Total.Count = n()) %>% 
+  merge(df_top_4_states_US %>% group_by(state) %>% summarise(Total.State.Count = n()), by = 'state') %>%
+  mutate(Percentage = (Total.Count / Total.State.Count)*100)
+
+ggplot(df_MH_top4_pivot, 
+       aes(axis1 = state, axis2 = Ment.or.Phy.Int,  y = Percentage)) +
+  geom_alluvium(aes(fill = Responses)) + 
+  geom_stratum(width = 1/2.7) +
+  geom_text(stat = 'stratum', aes(label = after_stat(stratum)), size = 3) + 
+  scale_x_discrete(limits = c("State", "Coworker/Supervisor"), expand = c(0.15, 0.05)) + 
+  theme_minimal()
+```
+**Insight:** Workplace geographic location does not have much of an effect on the respondents’ sentiment towards sharing their mental or physical health conditions in an interview. However, it is important to note that while a small number of people would share their physical health issues, almost none would discuss their mental health problems. This shows that there is still a stigma placed on mental health conditions and a long way for them to be treated with the same weight as physical conditions.  
+
+
+
+\newpage
+***Q8)* What is change in attitude of employee and employers on mental health over years? (2014, 2016, 2019)**  
+```{r echo = F, warning = F, message = F, include = F}
+df_MH_2016 <- read_csv('mental-heath-in-tech-2016_20161114.csv', na = '')
+df_MH_2016 <- (df_MH_2016 %>% 
+                 rename("seek_help" = "Does your employer offer resources to learn more about mental health concerns and options for seeking help?",
+                                      "mental_vs_physical" = "Do you feel that your employer takes mental health as seriously as physical health?",
+                                     "treatment" = "Have you ever sought treatment for a mental health issue from a mental health professional?") %>%
+                 select(seek_help, mental_vs_physical, treatment) %>%
+                 mutate(Timestamp = as.numeric(2016),
+                        treatment = replace(treatment, which(treatment == 1), 'Yes'),
+                        treatment = replace(treatment, which(treatment == 0), 'No')) %>% drop_na())
+
+df_MH_2019 <- read_csv('mental-heath-in-tech-2019.csv', na = '')
+df_MH_2019 <- (df_MH_2019 %>% 
+                 rename("seek_help" = "Does your employer offer resources to learn more about mental health disorders and options for seeking help?",
+                                     "treatment" = "Have you ever sought treatment for a mental health disorder from a mental health professional?") %>%
+                 select(seek_help, treatment) %>%
+                 mutate(Timestamp = as.numeric(2019),
+                        mental_vs_physical = 'No/NA/Yes',
+                        treatment = replace(treatment, which(treatment == 'TRUE'), 'Yes'),
+                        treatment = replace(treatment, which(treatment == 'FALSE'), 'No')) %>% drop_na())
+
+```
+
+
+```{r warning = F, fig.width = 8, fig.align='center', echo = F, warning = F, message = F}
+df_MH_2014 <- df_mental_health %>% mutate(Timestamp = as.numeric(2014)) %>% select(Timestamp, seek_help, mental_vs_physical, treatment) %>% drop_na()
+df_MH_2014_2016 <- rbind(df_MH_2014, df_MH_2016, df_MH_2019)
+df_total_responses_201416 <- df_MH_2014_2016 %>% group_by(Timestamp) %>% summarise(Total.Year.Data = n())
+
+plt_skhlp_yes <- (df_MH_2014_2016 %>% group_by(Timestamp, seek_help) %>% 
+                    summarise(Total.Count = n()) %>% 
+                    merge(df_total_responses_201416, by = 'Timestamp') %>%
+                    filter(seek_help %in% c('Yes')) %>% 
+                    mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+                    ggplot(aes(x = Timestamp, y = Percentage)) + 
+                    geom_line(aes(color = seek_help), 
+                              position = position_dodge(width = 1), size = 2) + 
+                    scale_x_discrete(limits = c(2014, 2016, 2019)) + xlab('Year') + 
+                    theme_minimal() + theme(legend.position = "none", 
+                                            plot.title = element_text(size = 9),
+                                            axis.title = element_text(size = 8),
+                                            axis.text = element_text(size = 7)) +
+                    ggtitle("Employers Provide\nMental Health Resources?"))
+
+plt_mtvspy_yes <- (df_MH_2014_2016 %>% group_by(Timestamp, mental_vs_physical) %>% 
+                     summarise(Total.Count = n()) %>% 
+                     merge(df_total_responses_201416, by = 'Timestamp') %>%
+                     filter(mental_vs_physical %in% c('Yes')) %>% 
+                     mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+                     ggplot(aes(x = Timestamp, y = Percentage)) + 
+                     geom_line(aes(color = mental_vs_physical), 
+                               position = position_dodge(width = 1), size = 2) + 
+                     scale_x_discrete(limits = c(2014, 2016)) + xlab('Year') + 
+                     theme_minimal()+ theme(legend.position = "none", 
+                                            plot.title = element_text(size = 9),
+                                            axis.title = element_text(size = 8),
+                                            axis.text = element_text(size = 7)) +
+                     ggtitle("Take Mental Health As \nSeriously As Physical Health?"))
+
+plt_trt_yes <- (df_MH_2014_2016 %>% group_by(Timestamp, treatment) %>% 
+                  summarise(Total.Count = n()) %>% 
+                  merge(df_total_responses_201416, by = 'Timestamp') %>%
+                  filter(treatment %in% c('Yes')) %>% 
+                  mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+                  ggplot(aes(x = Timestamp, y = Percentage)) + 
+                  geom_line(aes(color = treatment), 
+                            position = position_dodge(width = 1), size = 2) + 
+                  scale_x_discrete(limits = c(2014, 2016, 2019)) + xlab('Year') + 
+                     theme_minimal() + theme(legend.position = "none", 
+                                            plot.title = element_text(size = 9),
+                                            axis.title = element_text(size = 8),
+                                            axis.text = element_text(size = 7)) +
+                     ggtitle("Employees Taking Treatment\nFor Mental Health?"))
+
+plt_skhlp <- (df_MH_2014_2016 %>% group_by(Timestamp, seek_help) %>% 
+                summarise(Total.Count = n()) %>% 
+                merge(df_total_responses_201416, by = 'Timestamp') %>%
+                filter(seek_help %in% c('Yes', 'No')) %>%
+                mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+                ggplot(aes(fill = seek_help, y = Percentage, x = as.factor(Timestamp))) + 
+                geom_bar(position = "dodge", stat="identity") + 
+                xlab('Year') + 
+                theme_minimal() + theme(legend.position = "none",
+                                            axis.title = element_text(size = 8),
+                                            axis.text = element_text(size = 7)) +
+                guides(fill=guide_legend(title="Responses")))
+
+
+plt_mtvspy <- (df_MH_2014_2016 %>% group_by(Timestamp, mental_vs_physical) %>% 
+                 summarise(Total.Count = n()) %>% 
+                 merge(df_total_responses_201416, by = 'Timestamp') %>%
+                 filter(mental_vs_physical %in% c('Yes', 'No')) %>%
+                 mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+                 ggplot(aes(fill = mental_vs_physical, y = Percentage, x = Timestamp)) +
+                 geom_bar(position = "dodge", stat = "identity") + 
+                 scale_x_discrete(limits = c(2014, 2016)) + 
+                 xlab('Year') + 
+                 theme_minimal() + theme(legend.position = "none",
+                                            axis.title = element_text(size = 8),
+                                            axis.text = element_text(size = 7)) + 
+                 guides(fill=guide_legend(title="Responses"))) 
+
+plt_trt <- (df_MH_2014_2016 %>% group_by(Timestamp, treatment) %>% 
+              summarise(Total.Count = n()) %>% 
+              merge(df_total_responses_201416, by = 'Timestamp') %>%
+              filter(treatment %in% c('Yes', 'No')) %>%
+              mutate(Percentage = (Total.Count / Total.Year.Data)*100) %>%
+              ggplot(aes(fill = treatment, y = Percentage, x = as.factor(Timestamp))) +
+              geom_bar(position = "dodge", stat = "identity") + 
+              xlab('Year') + 
+              theme_minimal() + theme(axis.title = element_text(size = 7),
+                                      axis.text = element_text(size = 6),
+                                      legend.title = element_text(size = 8),
+                                      legend.text = element_text(size = 8)) + 
+              guides(fill=guide_legend(title="Responses")))
+
+
+plt_skhlp_yes + plt_mtvspy_yes + plt_trt_yes + plt_skhlp + plt_mtvspy  + plt_trt
+```
+**Insight:** In this section, we have analysed how much below mentioned variables have changed over time:   
+`seek_help`: *Does your employer provide resources to learn more about mental health issues and how to seek help?*  
+`mentalvsphysical`: *Do you feel that your employer takes mental health as seriously as physical health?*  
+`treatment`: *Have you sought treatment for a mental health condition?* 
+
+Over the span of 5 years, there is significant decrease in people directly saying no - employers not providing resources, showing that there is lack of awareness even if employers would have introduced resources for the mental health. On the contrary, employers have started giving less priority to mental health with 4% decline in people agreeing with their employer's consideration of mental health.  
+  
+Whereas, employees have started giving more importance to treatment in 2016 with rise of close to 7% from 2014. This indicates that there is increased awareness among employees about mental health over the period of 5 years.
+
+
+\newpage
+## Section 4: Sentiment Analysis of Comments
+***Q9)* What were the sentiments of the respondents in the comments?**
+```{r include = F}
+df_comments <- (df_mental_health %>% 
+                  mutate(comments = as.character(comments)) %>%
+                  select(Country, Gender, Age, comments))
+
+stop_words_comments <- (df_comments %>%
+                          unnest_tokens(word, comments) %>%
+                          count(word, sort = TRUE))
+
+tidy_text <- (df_comments %>% drop_na() %>%
+                unnest_tokens(output= word, input = comments) %>%
+                anti_join(stop_words, by = "word"))
+
+max_words <- (tidy_text %>% 
+                count(word, sort = TRUE)%>% 
+                mutate(word = reorder(word, n)) %>% slice(1:6))
+
+
+nrc <- get_sentiments('nrc')
+tidy_text_nrc <- (tidy_text %>% inner_join(nrc) %>% count(word, sort = TRUE))
+
+df_sentiments_gender <- (tidy_text %>%
+                           inner_join(get_sentiments("bing")) %>%
+                           count(Gender, word, sentiment, sort = TRUE) %>%
+                           ungroup())
+
+df_sentiment_age <- (tidy_text %>% mutate(Age.Group = case_when(Age>=18 & Age<20 ~ "18-20", 
+                                                                Age>=20 & Age<30 ~ "20-30",
+                                                                Age>=30 & Age<40 ~ "30-40",
+                                                                Age>=40 & Age<50 ~ "40-50",
+                                                                Age>=50 & Age<60 ~ "50-60",
+                                                                Age>=60 & Age<70 ~ "60-70",
+                                                                Age>=70 & Age<80 ~ "70-80",
+                                                                Age>=80 & Age<90 ~ "80-90",
+                                                                Age>=90 & Age<100 ~ "90+")))
+
+df_sentiment_age <- (df_sentiment_age %>% 
+                       inner_join(get_sentiments("bing")) %>%
+                       count(Age.Group, word , sentiment, sort = TRUE) %>%
+                       ungroup())
+```
+
+```{r echo = F}
+plt_max_words <- (ggplot(max_words, aes(n, word)) +
+                    geom_col() +
+                    labs(y = NULL) + theme_minimal() +
+                    ggtitle('Common words in Comments of the Survey') +
+                    theme(plot.title = element_text(size = 12)))
+  
+
+plt_gender <- (ggplot(df_sentiments_gender, 
+                      aes(1737,y= sentiment, fill=Gender)) +
+                 geom_col(show.legend = FALSE) +
+                 facet_wrap(~Gender, ncol = 2, scales = "free_x") + theme_minimal() +
+                 ggtitle('Comments Sentiments by Gender') +
+                 theme(plot.title = element_text(size = 11, hjust = 0.5), 
+                       axis.title = element_text(size = 8), 
+                       axis.text = element_text(size = 5)))
+
+plt_age <- (ggplot(df_sentiment_age, aes(2000,y= sentiment, fill=Age.Group)) +
+              geom_col(show.legend = FALSE) +
+              facet_wrap(~Age.Group, ncol = 2, scales = "free_x") + theme_minimal() +
+              ggtitle('Comments Sentiments by Age Group') +
+              theme(plot.title = element_text(size = 11, hjust = 0.5), 
+                    axis.title = element_text(size = 8), 
+                    axis.text = element_text(size = 5)))
+
+plt_max_words / (plt_gender | plt_age)
+```
+**Insight:** The most common words from the comment section are health, mental, and employer, which are neutral.  The sentiment towards mental health is mostly negative regardless of gender and age groups, with the exception of the age group 18-20 who had a brighter view on said issue.  
+  
+\newpage  
+***Q10)* What were the most frequently used negative and positive words in the comments?**
+```{r echo = F, warning = F, message = F, fig.align='center', fig.height = 4}
+wordcloud_2 <- (tidy_text %>%
+                  inner_join(get_sentiments("bing")) %>%
+                  count(word, sentiment, sort = TRUE) %>%
+                  acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+                  comparison.cloud(colors = c("red", "green"),
+                                   max.words = 100))
+```
+**Insight:** The frequently used negative words in the comments are `issues`, `depression`, `anxiety`, `negative`, etc. whereas the positive words are `benefits`, `supportive`, `comfortable`, `support`, etc.  
+  
+\newpage  
+## Summary and Conclusion
+In Section 1, we tried to understand the mental health of employees in the tech industry. We observed that the majority of employees in the survey are Male (78.8%) and most of the employees are in the age group of 30 to 39 years. And, majority of the respondents are mainly from 4 countries- the USA, UK, Canada, Germany (86% share) and are more likely to open up to their supervisors given the presence of regular communication between both of them. We also found out that non-tech companies are better equipped in providing mental health support to employees even when tech employees are more openly talking about their mental health problems.  
+  
+Further, in Section 2, we tried to analyze the factors affecting the mental health of employees in the tech industry. We explored the correlation between multiple factors available in the data set and found out that treatment of mental health in employees is highly correlated to the history of family mental health conditions and available care options. We also noticed that company size is not significantly affecting the people who are seeking support and smaller companies are better suited to provide mental health support benefits alongside anonymity. And, we also found out that, companies providing no benefits for mental health are also looking at mental health issues negatively and have more negative consequences for employees.  
+  
+In Section 3, we tried to understand the employee and employer's attitude towards mental health in depth. We observed that, in general, employees are less likely to bring out any kind of health issue either physical or mental into the discussion with their potential employers. We also noticed that, over a period of years, employees have become less aware of the resource availability for mental health support in their organizations and their organization's have also started giving less priority to mental health issues, whereas, employees have started giving more importance to the treatment of mental health issues.
+  
+In Section 4, we did a sentimental analysis of comments to understand the nature of comments made by employees. We noticed that except for the age group 0f 18 to 20, every other age group has almost equal negative sentiments. And, most of the negative words are related to mental health and positive words are supportive in nature.
+  
+  
+  
+## References
+1. [https://osmihelp.org/research](https://osmihelp.org/research)
+2. [https://hbr.org/2021/10/its-a-new-era-for-mental-health-at-work](https://hbr.org/2021/10/its-a-new-era-for-mental-health-at-work)
+
+
+
